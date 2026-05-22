@@ -861,7 +861,9 @@ class SeedQrDecoder(BaseSingleFrameQrDecoder):
 
         if qr_type == QRType.SEED__COMPACTSEEDQR:
             try:
-                self.seed_phrase = bip39.mnemonic_from_bytes(segment).split()
+                # CompactSeedQR stores raw entropy bytes (language-agnostic); reconstruct
+                # the mnemonic using the currently-selected wordlist language.
+                self.seed_phrase = bip39.mnemonic_from_bytes(segment, wordlist=self.wordlist).split()
                 self.complete = True
                 self.collected_segments = 1
                 return DecodeQRStatus.COMPLETE

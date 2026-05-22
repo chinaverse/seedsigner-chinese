@@ -9,3 +9,8 @@ src/seedsigner/models/settings_definition.json
 
 *.po
 *.mo
+
+# Local dev environment & regenerable tooling artifacts
+.venv/
+tools/_cache/
+tools/_screenshots/

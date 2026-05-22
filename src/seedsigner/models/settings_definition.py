@@ -317,7 +317,9 @@ class SettingsConstants:
     WORDLIST_LANGUAGE__PORTUGUESE = "pt"
     ALL_WORDLIST_LANGUAGES = [
         (WORDLIST_LANGUAGE__ENGLISH, "English"),
-        # (WORDLIST_LANGUAGE__CHINESE_SIMPLIFIED, "简体中文"),
+        # Label kept in ASCII so it renders correctly even when the UI locale (and
+        # thus the menu font) is English. Pinyin input is provided for this wordlist.
+        (WORDLIST_LANGUAGE__CHINESE_SIMPLIFIED, "Chinese (Simplified)"),
         # (WORDLIST_LANGUAGE__CHINESE_TRADITIONAL, "繁體中文"),
         # (WORDLIST_LANGUAGE__FRENCH, "Français"),
         # (WORDLIST_LANGUAGE__ITALIAN, "Italiano"),
@@ -559,13 +561,15 @@ class SettingsDefinition:
                       selection_options=SettingsConstants.get_detected_languages(),
                       default_value=SettingsConstants.LOCALE__ENGLISH),
 
-        # TODO: Support other BIP-39 wordlist languages! Until then, type == HIDDEN
+        # Selects which BIP-39 wordlist is used for entering / displaying mnemonics.
+        # English uses the standard a-z autocomplete keyboard; Chinese (Simplified)
+        # uses a pinyin -> character input method (see SeedMnemonicPinyinEntryScreen).
         SettingsEntry(category=SettingsConstants.CATEGORY__SYSTEM,
                       attr_name=SettingsConstants.SETTING__WORDLIST_LANGUAGE,
                       abbreviated_name="wordlist_lang",
                       display_name=_mft("Mnemonic language"),
                       type=SettingsConstants.TYPE__SELECT_1,
-                      visibility=SettingsConstants.VISIBILITY__HIDDEN,
+                      visibility=SettingsConstants.VISIBILITY__GENERAL,
                       selection_options=SettingsConstants.ALL_WORDLIST_LANGUAGES,
                       default_value=SettingsConstants.WORDLIST_LANGUAGE__ENGLISH),
 

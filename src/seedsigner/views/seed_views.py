@@ -7,7 +7,7 @@ from gettext import gettext as _
 
 from embit.descriptor import Descriptor
 
-from seedsigner.gui.components import FontAwesomeIconConstants, SeedSignerIconConstants
+from seedsigner.gui.components import FontAwesomeIconConstants, GUIConstants, SeedSignerIconConstants
 from seedsigner.gui.screens import (RET_CODE__BACK_BUTTON, ButtonListScreen,
     WarningScreen, DireWarningScreen, seed_screens)
 from seedsigner.gui.screens.screen import ButtonOption, ButtonOptionWithoutTranslation
@@ -217,12 +217,24 @@ class SeedMnemonicEntryView(View):
 
 
     def run(self):
+        wordlist_language_code = self.settings.get_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE)
+
+        if wordlist_language_code == SettingsConstants.WORDLIST_LANGUAGE__CHINESE_SIMPLIFIED:
+            # Chinese mnemonics are entered via a pinyin -> character input method.
+            # Start fresh each time: a stored character can't be reduced back to the
+            # pinyin letters the user would type (and a char isn't a keyboard key).
+            screen_class = seed_screens.SeedMnemonicPinyinEntryScreen
+            initial_letters = ["a"]
+        else:
+            screen_class = seed_screens.SeedMnemonicEntryScreen
+            initial_letters = list(self.cur_word) if self.cur_word else ["a"]
+
         ret = self.run_screen(
-            seed_screens.SeedMnemonicEntryScreen,
+            screen_class,
             # TRANSLATOR_NOTE: Inserts the word number (e.g. "Seed Word #6")
             title=_("Seed Word #{}").format(self.cur_word_index + 1),  # Human-readable 1-indexing!
-            initial_letters=list(self.cur_word) if self.cur_word else ["a"],
-            wordlist=Seed.get_wordlist(wordlist_language_code=self.settings.get_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE)),
+            initial_letters=initial_letters,
+            wordlist=Seed.get_wordlist(wordlist_language_code=wordlist_language_code),
         )
 
         if ret == RET_CODE__BACK_BUTTON:
@@ -1058,9 +1070,12 @@ class SeedWordsView(View):
             mnemonic = self.seed.get_bip85_child_mnemonic(self.bip85_data["child_index"], self.bip85_data["num_words"]).split()
             # TRANSLATOR_NOTE: Inserts the child index (e.g. "Child #0")
             title = _("Child #{}").format(self.bip85_data["child_index"])
+            # BIP-85 child mnemonics are always English
+            words_language_code = SettingsConstants.WORDLIST_LANGUAGE__ENGLISH
         else:
             mnemonic = self.seed.mnemonic_display_list
             title = _("Seed Words")
+            words_language_code = self.seed.wordlist_language_code
         words = mnemonic[self.page_index*words_per_page:(self.page_index + 1)*words_per_page]
 
         button_data = []
@@ -1077,6 +1092,7 @@ class SeedWordsView(View):
             page_index=self.page_index,
             num_pages=num_pages,
             button_data=button_data,
+            font_name=GUIConstants.get_wordlist_font_name(words_language_code),
         )
 
         if selected_menu_num == RET_CODE__BACK_BUTTON:
@@ -1266,8 +1282,6 @@ class SeedWordsBackupTestView(View):
 
 
     def run(self):
-        from embit import bip39
-
         if self.rand_seed is not None:
             random.seed(self.rand_seed + self.cur_index if self.cur_index is not None else 0)
 
@@ -1276,10 +1290,20 @@ class SeedWordsBackupTestView(View):
             while self.cur_index in self.confirmed_list:
                 self.cur_index = int(random.random() * len(self.mnemonic_list))
 
-        real_word = ButtonOptionWithoutTranslation(self.mnemonic_list[self.cur_index])
-        fake_word1 = ButtonOptionWithoutTranslation(bip39.WORDLIST[int(random.random() * 2047)])
-        fake_word2 = ButtonOptionWithoutTranslation(bip39.WORDLIST[int(random.random() * 2047)])
-        fake_word3 = ButtonOptionWithoutTranslation(bip39.WORDLIST[int(random.random() * 2047)])
+        # Decoy words must come from the same wordlist as the real words (and BIP-85
+        # children are always English). For English this is embit's WORDLIST, so the
+        # behavior is unchanged; Chinese pulls from the bundled simplified wordlist.
+        words_language_code = (
+            SettingsConstants.WORDLIST_LANGUAGE__ENGLISH if self.bip85_data is not None
+            else self.seed.wordlist_language_code
+        )
+        wordlist = Seed.get_wordlist(words_language_code)
+        word_font_name = GUIConstants.get_wordlist_font_name(words_language_code)
+
+        real_word = ButtonOptionWithoutTranslation(self.mnemonic_list[self.cur_index], font_name=word_font_name)
+        fake_word1 = ButtonOptionWithoutTranslation(wordlist[int(random.random() * 2047)], font_name=word_font_name)
+        fake_word2 = ButtonOptionWithoutTranslation(wordlist[int(random.random() * 2047)], font_name=word_font_name)
+        fake_word3 = ButtonOptionWithoutTranslation(wordlist[int(random.random() * 2047)], font_name=word_font_name)
 
         button_data = [real_word, fake_word1, fake_word2, fake_word3]
         random.shuffle(button_data)

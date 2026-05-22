@@ -261,10 +261,13 @@ class ToolsCalcFinalWordScreen(ButtonListScreen):
     selected_final_bits: str = None
     checksum_bits: str = None
     actual_final_word: str = None
+    word_font_name: str = None  # Optional override for the word (e.g. CJK wordlists)
 
     def __post_init__(self):
         self.is_bottom_list = True
         super().__post_init__()
+
+        word_font_name = self.word_font_name if self.word_font_name else GUIConstants.get_body_font_name()
 
         # First what's the total bit display width and where do the checksum bits start?
         bit_font_size = GUIConstants.get_button_font_size(locale="default") + 2  # bit font size should not vary by locale
@@ -299,6 +302,7 @@ class ToolsCalcFinalWordScreen(ButtonListScreen):
         your_input = _('Your input: "{}"').format(selection_text)
         self.components.append(TextArea(
             text=your_input,
+            font_name=word_font_name,  # CJK-capable when entropy word is a Chinese char
             screen_y=self.top_nav.height + GUIConstants.COMPONENT_PADDING - 2,  # Nudge to last line doesn't get too close to "Next" button
             height_ignores_below_baseline=True,  # Keep the next line (bits display) snugged up, regardless of text rendering below the baseline
         ))
@@ -373,6 +377,7 @@ class ToolsCalcFinalWordScreen(ButtonListScreen):
         self.components.append(TextArea(
             # TRANSLATOR_NOTE: labeled presentation of the last word in a BIP-39 mnemonic seed phrase.
             text=_('Final Word: "{}"').format(self.actual_final_word),
+            font_name=word_font_name,  # CJK-capable when the final word is a Chinese char
             screen_y=self.components[-1].screen_y + self.components[-1].height + 2*GUIConstants.COMPONENT_PADDING,
             height_ignores_below_baseline=True,  # Keep the next line (bits display) snugged up, regardless of text rendering below the baseline
         ))
@@ -410,6 +415,7 @@ class ToolsCalcFinalWordDoneScreen(ButtonListScreen):
     final_word: str = None
     mnemonic_word_length: int = 12
     fingerprint: str = None
+    word_font_name: str = None  # Optional override for the word (e.g. CJK wordlists)
 
     def __post_init__(self):
         # Manually specify 12 vs 24 case for easier ordinal translation
@@ -425,6 +431,7 @@ class ToolsCalcFinalWordDoneScreen(ButtonListScreen):
 
         self.components.append(TextArea(
             text=f"""\"{self.final_word}\"""",
+            font_name=self.word_font_name if self.word_font_name else GUIConstants.get_body_font_name(),
             font_size=26,
             is_text_centered=True,
             screen_y=self.top_nav.height + GUIConstants.COMPONENT_PADDING,
