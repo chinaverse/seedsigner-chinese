@@ -1,4 +1,5 @@
 import logging
+import os
 import unicodedata
 import hashlib
 import hmac
@@ -19,6 +20,10 @@ class InvalidSeedException(Exception):
 
 
 class Seed:
+    # Cache for BIP-39 wordlists that are bundled as resource files (i.e. anything
+    # embit doesn't ship itself). Keyed by wordlist_language_code.
+    _resource_wordlist_cache: dict = {}
+
     def __init__(self,
                  mnemonic: List[str] = None,
                  passphrase: str = "",
@@ -38,11 +43,34 @@ class Seed:
 
     @staticmethod
     def get_wordlist(wordlist_language_code: str = SettingsConstants.WORDLIST_LANGUAGE__ENGLISH) -> List[str]:
-        # TODO: Support other BIP-39 wordlist languages!
         if wordlist_language_code == SettingsConstants.WORDLIST_LANGUAGE__ENGLISH:
+            # embit ships the English wordlist
             return bip39.WORDLIST
+        elif wordlist_language_code == SettingsConstants.WORDLIST_LANGUAGE__CHINESE_SIMPLIFIED:
+            return Seed._get_resource_wordlist(wordlist_language_code, "chinese_simplified.txt")
         else:
             raise Exception(f"Unrecognized wordlist_language_code {wordlist_language_code}")
+
+
+    @staticmethod
+    def _get_resource_wordlist(wordlist_language_code: str, filename: str) -> List[str]:
+        """Load (and cache) a bundled BIP-39 wordlist resource file.
+
+        The file must contain exactly 2048 words in canonical BIP-39 index order,
+        one word per line (utf-8).
+        """
+        if wordlist_language_code not in Seed._resource_wordlist_cache:
+            wordlist_path = os.path.join(
+                os.path.dirname(__file__), "..", "resources", "wordlists", filename
+            )
+            with open(wordlist_path, encoding="utf-8") as wordlist_file:
+                words = [line.strip() for line in wordlist_file if line.strip()]
+            if len(words) != 2048:
+                raise Exception(
+                    f"Invalid BIP-39 wordlist '{filename}': expected 2048 words, got {len(words)}"
+                )
+            Seed._resource_wordlist_cache[wordlist_language_code] = words
+        return Seed._resource_wordlist_cache[wordlist_language_code]
 
 
     def _generate_seed(self):
@@ -112,8 +140,10 @@ class Seed:
 
 
     def set_wordlist_language_code(self, language_code: str):
-        # TODO: Support other BIP-39 wordlist languages!
-        raise Exception("Not yet implemented!")
+        self._wordlist_language_code = language_code
+        # The wordlist is used to validate the mnemonic during seed derivation, so
+        # re-derive against the newly-selected language.
+        self._generate_seed()
 
 
     @property

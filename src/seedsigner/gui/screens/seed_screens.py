@@ -13,6 +13,8 @@ from seedsigner.gui.components import (Button, FontAwesomeIconConstants, Fonts, 
     IconTextLine, SeedSignerIconConstants, TextArea, GUIConstants, reflow_text_into_pages)
 from seedsigner.gui.keyboard import Keyboard, TextEntryDisplay
 from seedsigner.gui.renderer import Renderer
+from seedsigner.helpers.pinyin import PinyinWordlist
+from seedsigner.models.settings import SettingsConstants
 from seedsigner.models.threads import BaseThread, ThreadsafeCounter
 
 from .screen import RET_CODE__BACK_BUTTON, BaseScreen, BaseTopNavScreen, ButtonListScreen, ButtonOption, KeyboardScreen, LargeIconStatusScreen, WarningEdgesMixin
@@ -414,6 +416,85 @@ class SeedMnemonicEntryScreen(BaseTopNavScreen):
 
 
 @dataclass
+class SeedMnemonicPinyinEntryScreen(SeedMnemonicEntryScreen):
+    """Seed word entry for the simplified-Chinese BIP-39 wordlist via pinyin.
+
+    Reuses the two-panel layout of SeedMnemonicEntryScreen unchanged: the user
+    types pinyin on the a-z keyboard (left) while the matching Chinese characters
+    appear in the scrollable candidate list (right; KEY1/KEY3 scroll, KEY2 selects).
+    The keyboard grays out any letter that can't continue a valid pinyin reading.
+    The value returned to the caller is the selected Chinese character, i.e. a
+    BIP-39 word.
+
+    Only the matching logic (pinyin -> characters instead of prefix -> words) and
+    the candidate-list font (CJK instead of fixed-width Latin) differ from the
+    parent; _run() is inherited as-is.
+    """
+
+    def __post_init__(self):
+        # Must exist before super().__post_init__() because the parent setup may
+        # call calc_possible_alphabet()/calc_possible_words().
+        self.pinyin_wordlist = PinyinWordlist.get_instance()
+
+        super().__post_init__()
+
+        # Render the candidate characters (and the chosen char during the final-
+        # selection animation) with a CJK-capable font. Reuse the existing locale
+        # font infra by explicitly requesting the simplified-Chinese locale's font,
+        # independent of the (English) UI locale.
+        cjk_font_name = GUIConstants.get_body_font_name(locale=SettingsConstants.LOCALE__CHINESE_SIMPLIFIED)
+        font_size = GUIConstants.get_button_font_size() + 4
+
+        self.word_font = Fonts.get_font(cjk_font_name, font_size)
+        (left, top, right, bottom) = self.word_font.getbbox("的", anchor="ls")
+        self.word_font_height = -1 * top
+        self.matches_list_row_height = self.word_font_height + GUIConstants.COMPONENT_PADDING
+
+        # Rebuild the highlight button with the CJK font so its glyph metrics (and
+        # vertical centering) are correct. CJK chars are uniform full-width, so
+        # measuring one sample char positions every candidate consistently.
+        old_button = self.matches_list_highlight_button
+        self.matches_list_highlight_button = Button(
+            text="的",
+            is_text_centered=False,
+            font_name=cjk_font_name,
+            font_size=font_size,
+            screen_x=old_button.screen_x,
+            screen_y=old_button.screen_y,
+            width=old_button.width,
+            height=old_button.height,
+            is_scrollable_text=False,
+        )
+
+        # The live text-entry display also needs the CJK font so the chosen
+        # character renders on final selection. Noto Sans SC includes Latin glyphs,
+        # so the pinyin letters still render correctly while typing.
+        self.text_entry_display.font = Fonts.get_font(cjk_font_name, self.text_entry_display.font_size)
+
+
+    def calc_possible_words(self):
+        pinyin_prefix = "".join(self.letters).strip()
+        self.possible_words = self.pinyin_wordlist.candidate_words(pinyin_prefix)
+        self.selected_possible_words_index = 0
+
+
+    def calc_possible_alphabet(self, new_letter=False):
+        # Mirror the parent's branching, but compute the still-valid next letters
+        # from pinyin readings rather than from the (single-character) words.
+        if (self.letters and len(self.letters) > 1 and not new_letter) or (len(self.letters) > 0 and new_letter):
+            search_letters = self.letters[:]
+            if not new_letter:
+                search_letters.pop()
+            self.calc_possible_words()
+            locked_prefix = "".join(search_letters).strip()
+            self.possible_alphabet = self.pinyin_wordlist.next_letters(locked_prefix)
+        else:
+            self.possible_alphabet = "abcdefghijklmnopqrstuvwxyz"
+            self.possible_words = []
+
+
+
+@dataclass
 class SeedFinalizeScreen(ButtonListScreen):
     fingerprint: str = None
     is_bottom_list: bool = True
@@ -460,6 +541,7 @@ class SeedWordsScreen(WarningEdgesMixin, ButtonListScreen):
     num_pages: int = 3
     is_bottom_list: bool = True
     status_color: str = GUIConstants.DIRE_WARNING_COLOR
+    font_name: str = None  # Optional override for the word font (e.g. CJK wordlists)
 
 
     def __post_init__(self):
@@ -475,7 +557,8 @@ class SeedWordsScreen(WarningEdgesMixin, ButtonListScreen):
 
         # Have to supersample the whole body since it's all at the small font size
         supersampling_factor = 1
-        font = Fonts.get_font(GUIConstants.get_body_font_name(), (GUIConstants.get_top_nav_title_font_size() + 2) * supersampling_factor)
+        word_font_name = self.font_name if self.font_name else GUIConstants.get_body_font_name()
+        font = Fonts.get_font(word_font_name, (GUIConstants.get_top_nav_title_font_size() + 2) * supersampling_factor)
 
         # Calc horizontal center based on longest word
         max_word_width = 0

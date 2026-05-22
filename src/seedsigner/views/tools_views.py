@@ -173,8 +173,11 @@ class ToolsImageEntropyMnemonicLengthView(View):
                 # 12-word mnemonic only uses the first 128 bits / 16 bytes of entropy
                 final_hash = final_hash[:16]
 
-            # Generate the mnemonic
-            mnemonic = mnemonic_generation.generate_mnemonic_from_bytes(final_hash)
+            # Generate the mnemonic in the user's selected wordlist language
+            mnemonic = mnemonic_generation.generate_mnemonic_from_bytes(
+                final_hash,
+                wordlist_language_code=self.settings.get_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE),
+            )
 
             # Image should never get saved nor stick around in memory
             seed_entropy_image = None
@@ -249,10 +252,11 @@ class ToolsDiceEntropyEntryView(View):
         if ret == RET_CODE__BACK_BUTTON:
             return Destination(BackStackView)
         
-        dice_seed_phrase = mnemonic_generation.generate_mnemonic_from_dice(ret)
+        wordlist_language_code = self.settings.get_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE)
+        dice_seed_phrase = mnemonic_generation.generate_mnemonic_from_dice(ret, wordlist_language_code=wordlist_language_code)
 
         # Add the mnemonic as an in-memory Seed
-        seed = Seed(dice_seed_phrase, wordlist_language_code=self.settings.get_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE))
+        seed = Seed(dice_seed_phrase, wordlist_language_code=wordlist_language_code)
         self.controller.storage.set_pending_seed(seed)
 
         # Cannot return BACK to this View
@@ -426,6 +430,7 @@ class ToolsCalcFinalWordShowFinalWordView(View):
             selected_final_bits=self.selected_final_bits,
             checksum_bits=self.checksum_bits,
             actual_final_word=self.actual_final_word,
+            word_font_name=GUIConstants.get_wordlist_font_name(self.settings.get_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE)),
         )
 
         if selected_menu_num == RET_CODE__BACK_BUTTON:
@@ -454,6 +459,7 @@ class ToolsCalcFinalWordDoneView(View):
             mnemonic_word_length=mnemonic_word_length,
             fingerprint=self.controller.storage.get_pending_mnemonic_fingerprint(self.settings.get_value(SettingsConstants.SETTING__NETWORK)),
             button_data=button_data,
+            word_font_name=GUIConstants.get_wordlist_font_name(self.settings.get_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE)),
         )
 
         if selected_menu_num == RET_CODE__BACK_BUTTON:

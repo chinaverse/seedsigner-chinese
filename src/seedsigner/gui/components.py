@@ -168,6 +168,19 @@ class GUIConstants:
             return GUIConstants.BUTTON_FONT_SIZE["default"]
 
 
+    @staticmethod
+    def get_wordlist_font_name(wordlist_language_code: str = None) -> str:
+        """Font for rendering BIP-39 mnemonic words.
+
+        Non-Latin wordlists (e.g. simplified Chinese) need a script-appropriate
+        font even when the UI locale (and thus the default body font) is English.
+        Reuses the per-locale font map; falls back to the current UI body font.
+        """
+        if wordlist_language_code == SettingsConstants.WORDLIST_LANGUAGE__CHINESE_SIMPLIFIED:
+            return GUIConstants.get_body_font_name(locale=SettingsConstants.LOCALE__CHINESE_SIMPLIFIED)
+        return GUIConstants.get_body_font_name()
+
+
 
 class FontAwesomeIconConstants:
     ANGLE_DOWN = "\uf107"
