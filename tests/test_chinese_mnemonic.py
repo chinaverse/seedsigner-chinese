@@ -154,6 +154,37 @@ class TestChinesePendingSeedStorage(BaseTest):
         assert SeedStorage().validate_mnemonic(words, wordlist_language_code=ZH) is True
 
 
+class TestChineseEntryRouting(BaseTest):
+    """Both normal seed entry AND the Tools 'Calc 12th/24th word' flow go through
+    SeedMnemonicEntryView, so both must route to the pinyin screen when the
+    wordlist language is Chinese."""
+
+    def _captured_screen_class(self, is_calc_final_word: bool):
+        from unittest.mock import patch
+        from seedsigner.views import seed_views
+        from seedsigner.gui.screens.screen import RET_CODE__BACK_BUTTON
+        self.settings.set_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE, ZH)
+        self.controller.storage.init_pending_mnemonic(num_words=12)
+        view = seed_views.SeedMnemonicEntryView(cur_word_index=0, is_calc_final_word=is_calc_final_word)
+        captured = {}
+
+        def fake_run_screen(screen_class, **kwargs):
+            captured["cls"] = screen_class
+            return RET_CODE__BACK_BUTTON
+
+        with patch.object(view, "run_screen", side_effect=fake_run_screen):
+            view.run()
+        return captured.get("cls")
+
+    def test_normal_entry_uses_pinyin_for_chinese(self):
+        from seedsigner.gui.screens import seed_screens
+        assert self._captured_screen_class(False) is seed_screens.SeedMnemonicPinyinEntryScreen
+
+    def test_calc_final_word_entry_uses_pinyin_for_chinese(self):
+        from seedsigner.gui.screens import seed_screens
+        assert self._captured_screen_class(True) is seed_screens.SeedMnemonicPinyinEntryScreen
+
+
 class TestPinyinWordlist(BaseTest):
     def setup_method(self):
         super().setup_method()
