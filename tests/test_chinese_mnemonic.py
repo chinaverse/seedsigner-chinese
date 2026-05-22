@@ -120,6 +120,40 @@ class TestChineseSeedQR(BaseTest):
         self._roundtrip(entropy, QRType.SEED__COMPACTSEEDQR)
 
 
+class TestChinesePendingSeedStorage(BaseTest):
+    """Regression: the entry/restore finalize path must build the Seed with the
+    selected wordlist language, not the default English (which rejected valid
+    Chinese mnemonics as 'Invalid Mnemonic')."""
+
+    def _enter(self, num_words, entropy):
+        from seedsigner.models.seed_storage import SeedStorage
+        self.settings.set_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE, ZH)
+        words = Mnemonic("chinese_simplified").to_mnemonic(entropy).split()
+        storage = SeedStorage()
+        storage.init_pending_mnemonic(num_words=num_words)
+        for i, w in enumerate(words):
+            storage.update_pending_mnemonic(w, i)
+        return storage, words
+
+    def test_pending_chinese_mnemonic_finalizes(self):
+        storage, words = self._enter(12, ENTROPIES[2])
+        # Must NOT raise InvalidSeedException
+        storage.convert_pending_mnemonic_to_pending_seed()
+        seed = storage.get_pending_seed()
+        assert seed is not None
+        assert seed.wordlist_language_code == ZH
+        assert seed.seed_bytes == Mnemonic("chinese_simplified").to_seed(" ".join(words))
+
+    def test_pending_chinese_fingerprint_available(self):
+        storage, _ = self._enter(24, ENTROPIES[4])
+        assert storage.get_pending_mnemonic_fingerprint() is not None
+
+    def test_validate_chinese_mnemonic(self):
+        from seedsigner.models.seed_storage import SeedStorage
+        words = Mnemonic("chinese_simplified").to_mnemonic(ENTROPIES[0]).split()
+        assert SeedStorage().validate_mnemonic(words, wordlist_language_code=ZH) is True
+
+
 class TestPinyinWordlist(BaseTest):
     def setup_method(self):
         super().setup_method()
@@ -131,14 +165,14 @@ class TestPinyinWordlist(BaseTest):
             for char in self.pinyin.candidate_words(prefix):
                 assert char in self.wordlist
 
-    def test_full_syllable_candidates(self):
-        # "shi" should surface common 是/时/十 etc., ordered by BIP-39 index (frequency).
+    def test_full_syllable_candidates_tone_ordered(self):
+        # "shi" surfaces 是/时/十/使 etc., ordered by tone (1->4), not frequency.
         candidates = self.pinyin.candidate_words("shi")
-        assert "是" in candidates
-        assert "时" in candidates
-        assert "十" in candidates
-        # 是 is index 2 (very common) -> should sort ahead of less common "shi" chars.
-        assert candidates.index("是") < candidates.index("十")
+        for c in ["是", "时", "十", "使"]:
+            assert c in candidates
+        # 时/十 are shi2 (tone 2) -> before 使 shi3 (tone 3) -> before 是 shi4 (tone 4)
+        assert candidates.index("十") < candidates.index("使") < candidates.index("是")
+        assert candidates.index("时") < candidates.index("是")
 
     def test_heteronyms_reachable_by_each_reading(self):
         # 行 reads xing / hang / heng -> reachable by all.

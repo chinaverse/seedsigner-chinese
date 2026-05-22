@@ -84,14 +84,17 @@ def fetch_and_verify_wordlist() -> list[str]:
 
 
 def readings_for(char: str) -> list[str]:
-    """Return ordered, de-duped, ascii-only toneless pinyin readings for a char.
+    """Return ordered, de-duped, ascii pinyin readings WITH a trailing tone digit.
 
-    The ü vowel is normalized to ``v``, matching the universal Chinese input
-    convention (e.g. 女 -> "nv", 绿 -> "lv"); "nu"/"lu" remain their own syllables.
-    pypinyin's NORMAL style already emits ``v`` here, but we normalize defensively
-    so this is robust across pypinyin versions / NFC vs NFD output.
+    Uses pypinyin TONE3 style: the tone number (1-4) is appended to the syllable
+    (e.g. 是 -> "shi4", 行 -> ["xing2", "hang2", "heng2"]); a neutral tone has no
+    digit (e.g. 的轻声 -> "de"). The runtime index strips the digit for prefix
+    matching but uses it to order candidates by pinyin then tone.
+
+    The ü vowel is normalized to ``v`` (universal Chinese input convention:
+    女 -> "nv4", 绿 -> "lv4"); "nu"/"lu" remain their own syllables.
     """
-    raw = pinyin(char, style=Style.NORMAL, heteronym=True)[0]
+    raw = pinyin(char, style=Style.TONE3, heteronym=True, neutral_tone_with_five=False)[0]
     out = []
     for r in raw:
         r = unicodedata.normalize("NFC", r.lower()).replace("ü", "v")
@@ -106,7 +109,7 @@ def main():
     lines = []
     bad = []
     reading_counts = []
-    valid = re.compile(r"^[a-z]+$")
+    valid = re.compile(r"^[a-z]+[1-4]?$")
     for ch in words:
         readings = readings_for(ch)
         for r in readings:
