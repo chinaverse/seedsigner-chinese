@@ -95,6 +95,20 @@ class TestChineseMnemonicGeneration(BaseTest):
         seed = Seed(words, wordlist_language_code=ZH)
         assert len(seed.seed_bytes) == 64
 
+    def test_calculate_checksum_returns_chinese_final_word(self):
+        # Regression (Tools -> Calc 12th/24th word): calculate_checksum re-encoded the
+        # computed mnemonic with the default ENGLISH wordlist, so the final word came
+        # back as an English word that then failed lookup in the Chinese wordlist.
+        wordlist = Seed.get_wordlist(ZH)
+        for entropy in (ENTROPIES[2], ENTROPIES[4]):  # 12- and 24-word
+            full = Mnemonic("chinese_simplified").to_mnemonic(entropy).split()
+            partial = full[:-1]  # 11 or 23 words
+            result = mnemonic_generation.calculate_checksum(list(partial), wordlist_language_code=ZH)
+            assert len(result) == len(full)
+            bad = [w for w in result if w not in wordlist]
+            assert not bad, f"calculate_checksum returned non-Chinese words: {bad}"
+            Seed(result, wordlist_language_code=ZH)  # must be a valid mnemonic
+
 
 class TestChineseSeedQR(BaseTest):
     """SeedQR round-trips for Chinese (encoder -> decoder, bypassing pyzbar image extraction)."""
