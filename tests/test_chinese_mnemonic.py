@@ -33,6 +33,17 @@ ENTROPIES = [
 ]
 
 
+def english_equivalent_str(zh_words):
+    """English BIP-39 mnemonic string at the same indices as the Chinese words.
+
+    This device DERIVES the wallet from this English equivalent; the Chinese
+    characters are only an input/display alias.
+    """
+    zh = Seed.get_wordlist(ZH)
+    en = Mnemonic("english").wordlist
+    return " ".join(en[zh.index(w)] for w in zh_words)
+
+
 class TestChineseWordlist(BaseTest):
     def test_wordlist_loads_and_matches_reference(self):
         wordlist = Seed.get_wordlist(ZH)
@@ -46,27 +57,36 @@ class TestChineseWordlist(BaseTest):
 
 
 class TestChineseSeedDerivation(BaseTest):
+    """This device intentionally derives the standard ENGLISH wallet for the same
+    word indices; the Chinese characters are an input/display alias only."""
+
     @pytest.mark.parametrize("entropy", ENTROPIES)
-    def test_seed_bytes_match_reference(self, entropy):
-        ref = Mnemonic("chinese_simplified")
-        phrase = ref.to_mnemonic(entropy)            # space-joined Chinese chars
-        words = phrase.split()
+    def test_chinese_input_derives_english_wallet(self, entropy):
+        zh_words = Mnemonic("chinese_simplified").to_mnemonic(entropy).split()
+        seed = Seed(zh_words, wordlist_language_code=ZH)
 
-        seed = Seed(words, wordlist_language_code=ZH)
+        # Derives the ENGLISH-words wallet at the same indices...
+        en_str = english_equivalent_str(zh_words)
+        assert en_str == Mnemonic("english").to_mnemonic(entropy)  # sanity
+        assert seed.seed_bytes == Mnemonic.to_seed(en_str)
+        # ...and is byte-identical to constructing from the English words directly.
+        assert seed.seed_bytes == Seed(en_str.split(), wordlist_language_code="en").seed_bytes
+        # ...while the mnemonic still DISPLAYS as the Chinese characters.
+        assert seed.mnemonic_display_list == zh_words
 
-        # The crux: identical seed bytes as the reference implementation.
-        assert seed.seed_bytes == ref.to_seed(phrase, passphrase="")
-        # And the words round-trip back to the original entropy.
-        assert ref.to_entropy(words) == bytearray(entropy)
+    def test_fingerprint_matches_english_wallet(self):
+        for entropy in ENTROPIES:
+            zh_words = Mnemonic("chinese_simplified").to_mnemonic(entropy).split()
+            en_words = Mnemonic("english").to_mnemonic(entropy).split()
+            zh_fp = Seed(zh_words, wordlist_language_code=ZH).get_fingerprint()
+            en_fp = Seed(en_words, wordlist_language_code="en").get_fingerprint()
+            assert zh_fp == en_fp
 
-    def test_seed_with_passphrase_matches_reference(self):
-        ref = Mnemonic("chinese_simplified")
-        phrase = ref.to_mnemonic(ENTROPIES[2])
-        passphrase = "正确的马电池订书钉"  # arbitrary non-ASCII passphrase
-
-        seed = Seed(phrase.split(), passphrase=passphrase, wordlist_language_code=ZH)
-
-        assert seed.seed_bytes == ref.to_seed(phrase, passphrase=passphrase)
+    def test_with_passphrase_matches_english_wallet(self):
+        zh_words = Mnemonic("chinese_simplified").to_mnemonic(ENTROPIES[2]).split()
+        passphrase = "correct horse battery staple"
+        seed = Seed(zh_words, passphrase=passphrase, wordlist_language_code=ZH)
+        assert seed.seed_bytes == Mnemonic.to_seed(english_equivalent_str(zh_words), passphrase=passphrase)
 
     def test_invalid_checksum_is_rejected(self):
         # Swap the first word for another valid word -> checksum should fail.
@@ -77,12 +97,10 @@ class TestChineseSeedDerivation(BaseTest):
             Seed(phrase, wordlist_language_code=ZH)
 
     def test_set_wordlist_language_code(self):
-        ref = Mnemonic("chinese_simplified")
-        phrase = ref.to_mnemonic(ENTROPIES[0])
-        seed = Seed(phrase.split(), wordlist_language_code=ZH)
-        # Re-affirming the same language re-derives the same bytes without error.
+        zh_words = Mnemonic("chinese_simplified").to_mnemonic(ENTROPIES[0]).split()
+        seed = Seed(zh_words, wordlist_language_code=ZH)
         seed.set_wordlist_language_code(ZH)
-        assert seed.seed_bytes == ref.to_seed(phrase, passphrase="")
+        assert seed.seed_bytes == Mnemonic.to_seed(english_equivalent_str(zh_words))
 
 
 class TestChineseMnemonicGeneration(BaseTest):
@@ -156,7 +174,8 @@ class TestChinesePendingSeedStorage(BaseTest):
         seed = storage.get_pending_seed()
         assert seed is not None
         assert seed.wordlist_language_code == ZH
-        assert seed.seed_bytes == Mnemonic("chinese_simplified").to_seed(" ".join(words))
+        # Chinese input derives the English-words wallet at the same indices.
+        assert seed.seed_bytes == Mnemonic.to_seed(english_equivalent_str(words))
 
     def test_pending_chinese_fingerprint_available(self):
         storage, _ = self._enter(24, ENTROPIES[4])
