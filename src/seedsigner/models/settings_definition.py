@@ -317,9 +317,11 @@ class SettingsConstants:
     WORDLIST_LANGUAGE__PORTUGUESE = "pt"
     ALL_WORDLIST_LANGUAGES = [
         (WORDLIST_LANGUAGE__ENGLISH, "English"),
-        # Label kept in ASCII so it renders correctly even when the UI locale (and
-        # thus the menu font) is English. Pinyin input is provided for this wordlist.
-        (WORDLIST_LANGUAGE__CHINESE_SIMPLIFIED, "Chinese (Simplified)"),
+        # Pinyin input of simplified-Chinese characters, but the wallet is DERIVED from
+        # the standard English BIP-39 words at the same indices (Chinese is an input/
+        # display alias). Label kept ASCII so it renders under the English menu font.
+        # NOTE: the portable backup is the English words / SeedQR, not the Chinese chars.
+        (WORDLIST_LANGUAGE__CHINESE_SIMPLIFIED, "Chinese pinyin (English seed)"),
         # (WORDLIST_LANGUAGE__CHINESE_TRADITIONAL, "繁體中文"),
         # (WORDLIST_LANGUAGE__FRENCH, "Français"),
         # (WORDLIST_LANGUAGE__ITALIAN, "Italiano"),

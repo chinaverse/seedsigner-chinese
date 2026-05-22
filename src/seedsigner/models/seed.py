@@ -75,10 +75,32 @@ class Seed:
 
     def _generate_seed(self):
         try:
-            self.seed_bytes = bip39.mnemonic_to_seed(self.mnemonic_str, password=self._passphrase, wordlist=self.wordlist)
+            derivation_mnemonic, derivation_wordlist = self._get_derivation_mnemonic()
+            self.seed_bytes = bip39.mnemonic_to_seed(derivation_mnemonic, password=self._passphrase, wordlist=derivation_wordlist)
         except Exception as e:
             logger.info(repr(e), exc_info=True)
             raise InvalidSeedException(repr(e))
+
+
+    def _get_derivation_mnemonic(self) -> tuple:
+        """Returns (mnemonic_str, wordlist) used for KEY DERIVATION (PBKDF2 + checksum).
+
+        For simplified Chinese this device DELIBERATELY derives the standard ENGLISH
+        BIP-39 wallet for the same word indices: the Chinese characters are an input /
+        display alias only, so a seed entered as Chinese yields the very same wallet as
+        the corresponding English words at the same indices.
+
+        IMPORTANT: the portable backup of such a wallet is therefore the ENGLISH words
+        (or equivalently the SeedQR / word indices) — NOT the handwritten Chinese
+        characters, which a standard wallet would interpret as a different (Chinese-seed)
+        wallet.
+        """
+        if self._wordlist_language_code == SettingsConstants.WORDLIST_LANGUAGE__CHINESE_SIMPLIFIED:
+            chinese_wordlist = Seed.get_wordlist(SettingsConstants.WORDLIST_LANGUAGE__CHINESE_SIMPLIFIED)
+            english_wordlist = bip39.WORDLIST
+            english_words = [english_wordlist[chinese_wordlist.index(word)] for word in self._mnemonic]
+            return " ".join(english_words), english_wordlist
+        return self.mnemonic_str, self.wordlist
 
 
     @property
