@@ -132,9 +132,9 @@ C 库后端(`.venv/Lib/site-packages/embit/util/ctypes_secp256k1.py:807`)调 `se
 
 两条路径殊途同归:**SeedSigner 每次签交易,`k` 都确定性算出,不碰随机数生成器。**
 
-调用链:
-- PSBT 交易签名:`src/seedsigner/views/psbt_views.py:543` → embit `ec.py:216` `PrivateKey.sign()` → `secp256k1.ecdsa_sign(..., nonce_function=None)`
-- 消息签名:`src/seedsigner/helpers/embit_utils.py:204` → `secp256k1.ecdsa_sign_recoverable(...)`
+调用链(以 SeedSigner **0.8.7** + `embit==0.8.0` 复核,`chinese-pinyin` 分支已 rebase 到该版本,签名代码路径未被本分支改动):
+- PSBT 交易签名(legacy / segwit 输入):`src/seedsigner/views/psbt_views.py:543` `psbt.sign_with(psbt_parser.root)` → embit `psbt.py:919` `PSBT.sign_with()` → `psbt.py:1039/1045` `root.sign(h)` / `prv.sign(h)` → `ec.py:216` `PrivateKey.sign()` → `secp256k1.ecdsa_sign(msg_hash, secret)`,`nonce_function` 缺省为 `None`
+- 消息签名:`src/seedsigner/helpers/embit_utils.py:204` → `secp256k1.ecdsa_sign_recoverable(msghash, prv._secret)`,同样 `nonce_function=None`
 
 ---
 
@@ -142,11 +142,23 @@ C 库后端(`.venv/Lib/site-packages/embit/util/ctypes_secp256k1.py:807`)调 `se
 
 确定性签名有一个学术上的小代价:**故障注入攻击(fault attack)**。若攻击者能物理 glitch 签名运算,让同一交易产生两个略有差异的签名,理论上可借此恢复私钥。应对手段是 "hedged signatures"——在 RFC 6979 输入里再掺一点真随机(RFC 6979 §3.6 的 `extra_data`),既确定又加随机。
 
-对 SeedSigner 这种"离线、攻击者难有物理接触"的威胁模型,这基本不构成现实风险,故用纯 RFC 6979 是合理的工程选择。(embit `ec.py:218-226` 里 `grind` 用的递增 `extra_data` 是为 low-R 体积优化,不是抗故障攻击,但机制上是同一个口子。)
+对 SeedSigner 这种"离线、攻击者难有物理接触"的威胁模型,这基本不构成现实风险,故用纯 RFC 6979 是合理的工程选择。(embit `ec.py:218-229` 里 `grind` 用的递增 `extra_data` 是为 low-R 体积优化,不是抗故障攻击,但机制上是同一个口子——`extra_data` 本身仍是确定性的计数器,不是随机数。)
 
 ---
 
-## 7. 总结
+## 7. 适用范围:RFC 6979 只管 ECDSA,Taproot 走的是 BIP-340
+
+**严格讲,"RFC 6979" 这个名字只适用于 (EC)DSA 签名**——也就是 legacy / segwit(P2PKH、P2SH、P2WPKH、P2WSH)输入用的那一套。SeedSigner **同时支持 Taproot(P2TR)**(`src/seedsigner/models/psbt_parser.py` 里对 `taproot_bip32_derivations` 的解析,以及 `psbt_views.py` 用 `script.p2tr()` 构造地址),而 Taproot 输入走的是完全不同的签名算法:**BIP-340 Schnorr**,不是 ECDSA,因此字面意义上不受 RFC 6979 约束。
+
+调用链:`psbt.py:1017/1025` `sign_input_with_tapkey()` → embit `ec.py:232` `PrivateKey.schnorr_sign()` → `secp256k1.schnorrsig_sign(msg_hash, secret)`。
+
+关键点:这次调用同样**不传 `aux_rand`**(即传 `None`)。BIP-340 参考实现里,`aux_rand32` 是"补充"用的新鲜随机数(可选,主要用来抗故障注入,不是安全必需),传 `NULL/None` 时 libsecp256k1 按其文档使用固定值(不注入外部随机性),nonce 完全由 `tagged_hash(privkey/pubkey, msg)` 确定性算出。
+
+所以结论是:**Taproot 输入不是"遵守 RFC 6979"(这个说法字面上不适用),而是遵守 BIP-340 的确定性 nonce 方案,并且和 ECDSA 路径一样,SeedSigner 没有额外注入随机数**——两条路径在"零随机"这个安全属性上是一致的,只是标准名字不同,审计时不应把"BIP-340 Schnorr"错误地表述为"RFC 6979"。
+
+---
+
+## 8. 总结
 
 比特币签名每次都需要 nonce `k`,而 `k` 是泄露私钥的头号风险点(重用或可预测 → 一两条公开签名即可反算私钥;PS3、Android 都因此栽过)。RFC 6979 用 `HMAC(私钥, 消息哈希)` **确定性**造出 `k`,既保证唯一又不可预测,还**彻底删除了签名时对随机数的依赖**——这就是"零随机"的含义,也是当前公认的正确做法。SeedSigner 经 embit 在 C 与纯 Python 两套后端上都忠实实现了它。
 
