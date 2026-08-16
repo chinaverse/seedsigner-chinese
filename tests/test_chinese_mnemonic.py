@@ -22,6 +22,7 @@ from seedsigner.models.settings import SettingsConstants
 
 
 ZH = SettingsConstants.WORDLIST_LANGUAGE__CHINESE_SIMPLIFIED
+EN = SettingsConstants.WORDLIST_LANGUAGE__ENGLISH
 
 # A few entropy values to derive valid 12- and 24-word Chinese mnemonics from.
 ENTROPIES = [
@@ -62,6 +63,10 @@ class TestChineseSeedDerivation(BaseTest):
 
     @pytest.mark.parametrize("entropy", ENTROPIES)
     def test_chinese_input_derives_english_wallet(self, entropy):
+        # Chinese seeds are entered with the Chinese wordlist selected, which is also
+        # what they are then displayed in (see
+        # TestSeedWordsFollowWordlistLanguageSetting for switching between languages).
+        self.settings.set_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE, ZH)
         zh_words = Mnemonic("chinese_simplified").to_mnemonic(entropy).split()
         seed = Seed(zh_words, wordlist_language_code=ZH)
 
@@ -101,6 +106,107 @@ class TestChineseSeedDerivation(BaseTest):
         seed = Seed(zh_words, wordlist_language_code=ZH)
         seed.set_wordlist_language_code(ZH)
         assert seed.seed_bytes == Mnemonic.to_seed(english_equivalent_str(zh_words))
+
+
+class TestSeedWordsFollowWordlistLanguageSetting(BaseTest):
+    """A seed's words are DISPLAYED in whichever wordlist language is currently
+    selected, not the one it happened to be created/scanned in.
+
+    Both wordlists address the same BIP-39 index, so re-rendering a seed in the other
+    language is purely cosmetic: it must never change the wallet that seed derives.
+    """
+
+    def _en_zh_pair(self, entropy):
+        return (
+            Mnemonic("english").to_mnemonic(entropy).split(),
+            Mnemonic("chinese_simplified").to_mnemonic(entropy).split(),
+        )
+
+    @pytest.mark.parametrize("entropy", [ENTROPIES[2], ENTROPIES[4]])  # 12- and 24-word
+    def test_english_seed_displays_as_chinese_after_switching_setting(self, entropy):
+        en_words, zh_words = self._en_zh_pair(entropy)
+        seed = Seed(en_words, wordlist_language_code=EN)
+        assert seed.mnemonic_display_list == en_words
+
+        self.settings.set_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE, ZH)
+        assert seed.mnemonic_display_list == zh_words
+
+    @pytest.mark.parametrize("entropy", [ENTROPIES[2], ENTROPIES[4]])  # 12- and 24-word
+    def test_chinese_seed_displays_as_english_after_switching_setting(self, entropy):
+        en_words, zh_words = self._en_zh_pair(entropy)
+        self.settings.set_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE, ZH)
+        seed = Seed(zh_words, wordlist_language_code=ZH)
+        assert seed.mnemonic_display_list == zh_words
+
+        self.settings.set_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE, EN)
+        assert seed.mnemonic_display_list == en_words
+
+    def test_switching_display_language_never_changes_the_wallet(self):
+        """The security-critical invariant: display language is cosmetic only."""
+        en_words, _ = self._en_zh_pair(ENTROPIES[2])
+        seed = Seed(en_words, wordlist_language_code=EN)
+        seed_bytes_before = seed.seed_bytes
+        fingerprint_before = seed.get_fingerprint()
+
+        self.settings.set_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE, ZH)
+        assert seed.seed_bytes == seed_bytes_before
+        assert seed.get_fingerprint() == fingerprint_before
+        # ...and it still derives the same wallet the English words always did.
+        assert seed.seed_bytes == Mnemonic.to_seed(" ".join(en_words))
+
+    def test_mnemonic_indexes_are_language_independent(self):
+        en_words, zh_words = self._en_zh_pair(ENTROPIES[4])
+        en_seed = Seed(en_words, wordlist_language_code=EN)
+        zh_seed = Seed(zh_words, wordlist_language_code=ZH)
+        assert en_seed.mnemonic_indexes == zh_seed.mnemonic_indexes
+
+    def test_display_str_follows_setting(self):
+        en_words, zh_words = self._en_zh_pair(ENTROPIES[2])
+        seed = Seed(en_words, wordlist_language_code=EN)
+        self.settings.set_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE, ZH)
+        assert seed.mnemonic_display_str == " ".join(zh_words)
+
+    def test_display_language_code_follows_setting(self):
+        """Views use this to pick the right font for the words being shown."""
+        en_words, _ = self._en_zh_pair(ENTROPIES[2])
+        seed = Seed(en_words, wordlist_language_code=EN)
+        assert seed.display_wordlist_language_code == EN
+
+        self.settings.set_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE, ZH)
+        assert seed.display_wordlist_language_code == ZH
+
+    def test_stored_mnemonic_is_not_mutated_by_display_switching(self):
+        """Switching the setting must not rewrite the seed's own stored words; the
+        seed keeps the language it was created in for derivation purposes."""
+        en_words, _ = self._en_zh_pair(ENTROPIES[2])
+        seed = Seed(en_words, wordlist_language_code=EN)
+        self.settings.set_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE, ZH)
+        assert seed.mnemonic_list == en_words
+        assert seed.wordlist_language_code == EN
+
+    def test_electrum_seed_never_switches_language(self):
+        """Electrum seeds derive from the literal mnemonic STRING (not BIP-39 word
+        indices), so re-rendering them in another wordlist would be meaningless and
+        would misrepresent the actual backup."""
+        from seedsigner.models.seed import ElectrumSeed
+        electrum_words = "regular reject rare profit once math fringe chase until ketchup century escape".split()
+        seed = ElectrumSeed(electrum_words)
+        seed_bytes_before = seed.seed_bytes
+
+        self.settings.set_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE, ZH)
+        assert seed.display_wordlist_language_code == EN
+        assert seed.mnemonic_display_list == electrum_words
+        assert seed.seed_bytes == seed_bytes_before
+
+    @pytest.mark.parametrize("qr_type", [QRType.SEED__SEEDQR, QRType.SEED__COMPACTSEEDQR])
+    def test_seedqr_data_is_identical_in_either_language(self, qr_type):
+        """SeedQR encodes word INDEXES, so the transcribed QR must be byte-identical
+        no matter which language the seed is being displayed in."""
+        en_words, zh_words = self._en_zh_pair(ENTROPIES[2])
+        encoder_cls = SeedQrEncoder if qr_type == QRType.SEED__SEEDQR else CompactSeedQrEncoder
+        en_data = encoder_cls(mnemonic=en_words, wordlist_language_code=EN).next_part()
+        zh_data = encoder_cls(mnemonic=zh_words, wordlist_language_code=ZH).next_part()
+        assert en_data == zh_data
 
 
 class TestChineseMnemonicGeneration(BaseTest):

@@ -106,26 +106,79 @@ class Seed:
     @property
     def mnemonic_str(self) -> str:
         return " ".join(self._mnemonic)
-    
+
 
     @property
     def mnemonic_list(self) -> List[str]:
         return self._mnemonic
 
 
-    @property 
+    @property
     def wordlist_language_code(self) -> str:
         return self._wordlist_language_code
 
 
     @property
+    def mnemonic_indexes(self) -> List[int]:
+        """The seed's BIP-39 word indices: its language-independent identity.
+
+        Every supported wordlist addresses the same 2048 indices, so these are what
+        stay fixed when the same seed is expressed in a different language (and are
+        also exactly what a SeedQR encodes).
+        """
+        wordlist = self.wordlist
+        return [wordlist.index(word) for word in self._mnemonic]
+
+
+    @property
+    def is_wordlist_language_switchable(self) -> bool:
+        """Whether this seed's words may be re-rendered in a different BIP-39 wordlist.
+
+        True for standard BIP-39 seeds, whose words are just a rendering of the
+        underlying word indices. Subclasses that derive from the literal mnemonic
+        string rather than from indices must override this (see `ElectrumSeed`).
+        """
+        return True
+
+
+    @property
+    def display_wordlist_language_code(self) -> str:
+        """The wordlist language the seed's words should be SHOWN in.
+
+        Follows the user's current wordlist language setting, so switching that
+        setting re-renders seeds that are already loaded instead of leaving them
+        stuck in whichever language they happened to be created or scanned in.
+        """
+        if not self.is_wordlist_language_switchable:
+            return self._wordlist_language_code
+
+        # Imported here (rather than at module level) to keep `Seed` importable
+        # without pulling in the Settings singleton.
+        from seedsigner.models.settings import Settings
+        return Settings.get_instance().get_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE)
+
+
+    def get_mnemonic_in_language(self, wordlist_language_code: str) -> List[str]:
+        """This same seed's words, expressed in the given BIP-39 wordlist.
+
+        Purely a change of rendering: the word indices — and therefore the wallet
+        this seed derives — are untouched.
+        """
+        if wordlist_language_code == self._wordlist_language_code:
+            return list(self._mnemonic)
+
+        target_wordlist = Seed.get_wordlist(wordlist_language_code)
+        return [target_wordlist[index] for index in self.mnemonic_indexes]
+
+
+    @property
     def mnemonic_display_str(self) -> str:
-        return unicodedata.normalize("NFC", " ".join(self._mnemonic))
-    
+        return unicodedata.normalize("NFC", " ".join(self.get_mnemonic_in_language(self.display_wordlist_language_code)))
+
 
     @property
     def mnemonic_display_list(self) -> List[str]:
-        return unicodedata.normalize("NFC", " ".join(self._mnemonic)).split()
+        return unicodedata.normalize("NFC", " ".join(self.get_mnemonic_in_language(self.display_wordlist_language_code))).split()
 
 
     @property
@@ -262,6 +315,14 @@ class ElectrumSeed(Seed):
         # normalize whitespaces
         passphrase = u' '.join(passphrase.split())
         return passphrase
+
+
+    @property
+    def is_wordlist_language_switchable(self) -> bool:
+        """Electrum seeds derive from the literal mnemonic STRING, not from BIP-39
+        word indices, so their words can't be re-rendered in another wordlist without
+        misrepresenting what the actual backup is."""
+        return False
 
 
     @property

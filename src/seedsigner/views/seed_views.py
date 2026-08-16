@@ -1075,7 +1075,7 @@ class SeedWordsView(View):
         else:
             mnemonic = self.seed.mnemonic_display_list
             title = _("Seed Words")
-            words_language_code = self.seed.wordlist_language_code
+            words_language_code = self.seed.display_wordlist_language_code
         words = mnemonic[self.page_index*words_per_page:(self.page_index + 1)*words_per_page]
 
         button_data = []
@@ -1295,7 +1295,7 @@ class SeedWordsBackupTestView(View):
         # behavior is unchanged; Chinese pulls from the bundled simplified wordlist.
         words_language_code = (
             SettingsConstants.WORDLIST_LANGUAGE__ENGLISH if self.bip85_data is not None
-            else self.seed.wordlist_language_code
+            else self.seed.display_wordlist_language_code
         )
         wordlist = Seed.get_wordlist(words_language_code)
         word_font_name = GUIConstants.get_wordlist_font_name(words_language_code)
@@ -1535,8 +1535,11 @@ class SeedTranscribeSeedQRWholeQRView(View):
     
 
     def run(self):
+        # The words must be looked up in the seed's OWN wordlist, not whichever one is
+        # currently selected. Either way the encoded QR is identical (SeedQR stores word
+        # indexes), but pairing the words with a different wordlist would fail lookup.
         encoder_args = dict(mnemonic=self.seed.mnemonic_list,
-                            wordlist_language_code=self.settings.get_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE))
+                            wordlist_language_code=self.seed.wordlist_language_code)
         if self.seedqr_format == QRType.SEED__SEEDQR:
             e = SeedQrEncoder(**encoder_args)
         elif self.seedqr_format == QRType.SEED__COMPACTSEEDQR:
@@ -1580,8 +1583,9 @@ class SeedTranscribeSeedQRZoomedInView(View):
 
 
     def run(self):
+        # See SeedTranscribeSeedQRWholeQRView: pair the words with their own wordlist.
         encoder_args = dict(mnemonic=self.seed.mnemonic_list,
-                            wordlist_language_code=self.settings.get_value(SettingsConstants.SETTING__WORDLIST_LANGUAGE))
+                            wordlist_language_code=self.seed.wordlist_language_code)
         if self.seedqr_format == QRType.SEED__SEEDQR:
             e = SeedQrEncoder(**encoder_args)
         elif self.seedqr_format == QRType.SEED__COMPACTSEEDQR:
@@ -1670,7 +1674,12 @@ class SeedTranscribeSeedQRConfirmScanView(View):
             if self.decoder.is_seed:
                 seed_mnemonic = self.decoder.get_seed_phrase()
                 # Found a valid mnemonic seed! But does it match?
-                if seed_mnemonic != self.seed.mnemonic_list:
+                # Compare by word index: the decoder returns words in the currently-
+                # selected wordlist language, which need not be the language this seed
+                # is stored in. A SeedQR encodes indexes, so that is the real identity.
+                scanned_wordlist = Seed.get_wordlist(self.decoder.wordlist_language_code)
+                scanned_indexes = [scanned_wordlist.index(word) for word in seed_mnemonic]
+                if scanned_indexes != self.seed.mnemonic_indexes:
                     return Destination(SeedTranscribeSeedQRConfirmWrongSeedView, skip_current_view=True)
                 else:
                     return Destination(SeedTranscribeSeedQRConfirmSuccessView, view_args={"seed_num": self.seed_num})
